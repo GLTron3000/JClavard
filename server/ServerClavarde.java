@@ -20,14 +20,11 @@ import jclavard.MessageSyntaxException;
 public class ServerClavarde {
     ServerSocketChannel serverSocketChannel;
     //private final Executor executor;
-    //private ArrayList<Client> threadList;
-    //private ArrayList<ArrayBlockingQueue> queues;
     private ArrayList<ChatClient> clients;
+    private Selector selector;
 
     public ServerClavarde() {
         //executor = Executors.newWorkStealingPool();
-        //threadList = new ArrayList<>();
-        //queues = new ArrayList<>();
         clients = new ArrayList<>();
     }
 
@@ -37,42 +34,43 @@ public class ServerClavarde {
             serverSocketChannel.bind(new InetSocketAddress("localhost", port));
             serverSocketChannel.configureBlocking(false);
 
-            Selector selector = Selector.open();
+            selector = Selector.open();
             serverSocketChannel.register(selector, SelectionKey.OP_ACCEPT);
-
-            System.out.println("Waiting for client...");
-            while(true){
-                selector.select();
-                Set<SelectionKey> selectedKeys;
-                selectedKeys = selector.selectedKeys();
-                Iterator<SelectionKey> iterator = selectedKeys.iterator();
-                
-                while(iterator.hasNext()) {
-                    SelectionKey key = iterator.next();
-
-                    if(!key.isValid()){
-                        continue;
-                    }
-
-                    if (key.isAcceptable()) {
-                        acceptable(selector);
-                    }
-
-                    if (key.isReadable()) {
-                        readable(key, selector, selectedKeys);
-                    }
-
-                    if(key.isWritable()){
-                        writable(key, selector, selectedKeys);
-                    }
-                    
-                    iterator.remove();
-                }
-            }
         } catch (IOException e) {
-            System.err.println("Erreur Serveur");
+            System.err.println("Erreur lancement serveur");
             e.printStackTrace();
         }
+        
+        System.out.println("Waiting for client...");
+        while(true){
+            try {
+                selector.select();
+            } catch (IOException ex) {
+                System.err.println("Erreur selector");
+            }
+            Set<SelectionKey> selectedKeys;
+            selectedKeys = selector.selectedKeys();
+            Iterator<SelectionKey> iterator = selectedKeys.iterator();
+
+            while(iterator.hasNext()) {
+                SelectionKey key = iterator.next();
+
+                if(!key.isValid()){
+                    continue;
+                }
+
+                if (key.isAcceptable()) {
+                    acceptable(selector);
+                }else if (key.isReadable()) {
+                    readable(key, selector, selectedKeys);
+                }else if(key.isWritable()){
+                    writable(key, selector, selectedKeys);
+                }
+
+                iterator.remove();
+            }
+        }
+       
     }
 
     public void broadcastMessage(String message, ChatClient currentClient){
@@ -141,7 +139,7 @@ public class ServerClavarde {
             try {
                 client.close();
             } catch (IOException ex1) {
-                System.out.println("Erreur fermeture");
+                System.err.println("Erreur fermeture");
             }
         }
             
@@ -151,28 +149,28 @@ public class ServerClavarde {
         SocketChannel client = (SocketChannel) key.channel();
         try{
             ByteBuffer buffer = ByteBuffer.allocate(256);
-            client.read(buffer);
-            String unconfirmedMessage = new String(buffer.array()).trim();
-            
-            String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
-            
-            broadcastMessage(message, (ChatClient) key.attachment());
-            setAllWrite(selector);
-
-            if(message.equals("")){
-                client.close();
-                System.out.println("Client disconnected");
-            }else{
+            if(client.read(buffer)==-1){
                 ChatClient cc = (ChatClient)key.attachment();
+                client.close();
+                clients.remove(cc);  
+                System.out.println(cc.pseudo+" disconnected");
+                return;
+            }
+            
+            
+            String unconfirmedMessage = new String(buffer.array()).trim();
+            ChatClient cc = (ChatClient)key.attachment();
+            
+            System.out.println("Message from "+cc.pseudo+" : "+unconfirmedMessage);  
+            
+            if(!unconfirmedMessage.equals("")){
+                String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
                 System.out.println(cc.pseudo+"> "+message);
+                broadcastMessage(message, (ChatClient) key.attachment());
+                setAllWrite(selector);
             }
         }catch (IOException e) {
-            System.out.println("Client disconnected");
-            try {
-                client.close();
-            } catch (IOException ex) {
-                System.err.println("Disconnection error");
-            }
+            System.err.println("Client communication error");
         } catch (MessageSyntaxException ex) {
             System.err.println("Erreur protocole MSG");
             sendMessage(client, ex.errorMessage());
@@ -192,12 +190,7 @@ public class ServerClavarde {
             String message = (String) chatClient.queue.poll();
             sendMessage(client, message);
         }catch (IOException e) {
-            System.out.println("Client disconnected");
-            try {
-                client.close();
-            } catch (IOException ex) {
-                System.err.println("Disconnection error");
-            }
+            System.err.println("Client communication error");
         }
     }
     
@@ -206,12 +199,7 @@ public class ServerClavarde {
             ByteBuffer buffer = ByteBuffer.wrap(message.getBytes()); 
             client.write(buffer);
         } catch (IOException ex) {
-            System.err.println("Erreur envoi");
-            try {
-                client.close();
-            } catch (IOException ex1) {
-                Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex1);
-            }
+            System.err.println("Erreur envoi message");
             ex.printStackTrace();
         }
     }

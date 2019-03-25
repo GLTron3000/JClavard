@@ -15,22 +15,17 @@ public class Sender implements Runnable{
         this.socket = socket;
     }
     
-    public void connectToServer(String pseudo){
+    public void connectToServer(String pseudo) throws IOException{
         send("CONNECT "+pseudo);
     }
 
-    public void messageToServer(String message){
+    public void messageToServer(String message) throws IOException{
         send("MSG "+message);
     }
     
-    private void send(String message) {
-        try {
-            DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
-            dataOutputStream.writeUTF(message);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
+    private void send(String message) throws IOException{
+        DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+        dataOutputStream.writeUTF(message);
     }
     
     @Override

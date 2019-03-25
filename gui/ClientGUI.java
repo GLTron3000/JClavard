@@ -1,6 +1,7 @@
 package gui;
 
 import client.ClientClavarde;
+import java.io.IOException;
 import java.util.concurrent.Semaphore;
 import java.util.logging.Level;
 import java.util.logging.Logger;
@@ -16,14 +17,17 @@ import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.HBox;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
+import javafx.stage.Popup;
 import javafx.stage.Stage;
 
 public class ClientGUI {
     Stage stage;
     private Scene scene_pseudo;
     private Scene scene_chat;
+    private Scene scene_error;
     private BorderPane borderPPseudo;
     private BorderPane borderPChat;
+    private VBox vBoxError;
     private TextField textFieldPseudo;
     private TextField textFieldAdress;
     private TextField textFieldChat;
@@ -47,7 +51,13 @@ public class ClientGUI {
             textFieldChat.clear();
                         
             if(!message.isEmpty()){
-                client.sendMessage(message);
+                try {
+                    client.sendMessage(message);
+                } catch (IOException ex) {
+                    System.err.println("Erreur connection serveur "+adress);
+                    stage.setScene(scene_error);
+                }
+
                 try {
                     semaphore.acquire();
                     addMessage(pseudo, message);
@@ -104,9 +114,15 @@ public class ClientGUI {
             if(pseudo.isEmpty() || adress.isEmpty()){
                 
             }else{
-                client = new ClientClavarde(12345,adress, this);
-                stage.setScene(scene_chat);
-                client.startListen();
+                
+                try {
+                    client = new ClientClavarde(12345,adress, this);
+                    stage.setScene(scene_chat);
+                    client.startListen();
+                }catch (IOException ex) {
+                    System.err.println("Erreur connection serveur "+adress);
+                    stage.setScene(scene_error);
+                }
             }
         });
         return button;
@@ -146,25 +162,33 @@ public class ClientGUI {
                
         
     }
+    
+    private void initError(){
+        vBoxError = new VBox();
+        
+        Text text = new Text("Erreur communication serveur");
+        Button button = initQuitBT();
+        
+        vBoxError.setAlignment(Pos.CENTER);
+        vBoxError.setPadding(new Insets(10));
+        vBoxError.getChildren().addAll(text, button);
+        
+    }
         
     public ClientGUI() {
         semaphore = new Semaphore(1);
         
         initChat();
         initPseudo();
+        initError();
         
         scene_pseudo = new Scene(borderPPseudo, 500, 500);
-        scene_chat = new Scene(borderPChat, 500, 500);             
+        scene_chat = new Scene(borderPChat, 500, 500);    
+        scene_error = new Scene(vBoxError, 300, 200);
         
         stage = new Stage();
         stage.setTitle("JClavardAMU Client");
         stage.setScene(scene_pseudo);
     
     }
-
-   
-
-    
-    
-    
 }

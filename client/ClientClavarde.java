@@ -4,9 +4,6 @@ import gui.ClientGUI;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.net.Socket;
-import java.util.logging.Level;
-import java.util.logging.Logger;
-
 
 public class ClientClavarde {
     Socket socket;
@@ -16,16 +13,13 @@ public class ClientClavarde {
     Listener listener;
     Thread listenThread;
 
-    public ClientClavarde(int port, String adress, ClientGUI gui) {
+    public ClientClavarde(int port, String adress, ClientGUI gui) throws IOException{
         this.port = port;
         this.adress = adress;
         
         socket = new Socket();
-        try {
-            socket.connect(new InetSocketAddress(adress, port));
-        } catch (IOException ex) {
-            Logger.getLogger(ClientClavarde.class.getName()).log(Level.SEVERE, null, ex);
-        }
+        socket.connect(new InetSocketAddress(adress, port));
+        
         
         sender = new Sender(socket, gui);
         //sender.run();
@@ -36,7 +30,7 @@ public class ClientClavarde {
         sender.connectToServer(gui.pseudo);
     }
     
-    public void sendMessage(String message){
+    public void sendMessage(String message) throws IOException{
         sender.messageToServer(message);
     }
     
