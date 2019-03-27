@@ -4,13 +4,13 @@ package server;
 public class ServerRun implements Runnable{
     private ServerClavarde server;
 
-    public ServerRun() {
-        server = new ServerClavarde(); 
+    public ServerRun(int port) {
+        server = new ServerClavarde(port);
     }
 
     @Override
     public void run() {
-        server.start(12345);
+        server.start();
     }
     
     public void kickAll(){

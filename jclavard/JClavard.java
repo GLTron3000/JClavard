@@ -12,8 +12,8 @@ public class JClavard{
             switch(args[0]){
                 case "-h" : System.out.println(help); break;
                 case "-s" : 
-                    ServerClavarde server = new ServerClavarde(); 
-                    server.start(12345);
+                    ServerClavarde server = new ServerClavarde(12345);
+                    server.start();
                     break;
                 default : System.err.println(help);
             }   

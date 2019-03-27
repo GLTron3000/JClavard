@@ -7,6 +7,7 @@ import javafx.scene.Scene;
 import javafx.scene.control.Button;
 import javafx.scene.control.Label;
 import javafx.scene.control.ScrollPane;
+import javafx.scene.control.TextField;
 import javafx.scene.layout.BorderPane;
 import javafx.scene.layout.VBox;
 import javafx.scene.text.Text;
@@ -20,6 +21,7 @@ public class ServerGUI {
     private BorderPane borderPChat;
     private Text chat;
     private Label status;
+    private TextField textFieldPort;
     //ServerClavarde server;
     Thread serverThread;
     
@@ -27,8 +29,16 @@ public class ServerGUI {
         Button button = new Button("Starto");
         
         button.setOnAction((ActionEvent event) -> {
-            status.setText("Server running");
+            String port = textFieldPort.getText();
+            if(port.equals("")){
+                serverThread = new Thread(new ServerRun(12345));
+            }else{
+                int portINT = Integer.parseInt(port);
+                serverThread = new Thread(new ServerRun(portINT));
+            }
             serverThread.start();
+            status.setText("Server running");
+
         });
         return button;
     }
@@ -61,13 +71,15 @@ public class ServerGUI {
         Button startBT = startBT();
         Button stopBT = stopBT();
         Button quitBT = quitBT();
+
+        textFieldPort = new TextField();
         
         ScrollPane scrollPane = new ScrollPane();
         scrollPane.setContent(chat);
         scrollPane.setPadding(new Insets(10));
         
         VBox vboxBT = new VBox();
-        vboxBT.getChildren().addAll(status, startBT, stopBT, quitBT);
+        vboxBT.getChildren().addAll(status, textFieldPort, startBT, stopBT, quitBT);
         vboxBT.setSpacing(10);
         vboxBT.setPadding(new Insets(10));
         vboxBT.setAlignment(Pos.TOP_CENTER);
@@ -81,7 +93,7 @@ public class ServerGUI {
 
         scene_chat = new Scene(borderPChat, 500, 500);             
         
-        serverThread = new Thread(new ServerRun());
+
 
         stage = new Stage();
         stage.setTitle("JClavardAMU Server");

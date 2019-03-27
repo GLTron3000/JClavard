@@ -1,7 +1,11 @@
 package server;
 
+import java.io.DataOutputStream;
+import java.io.File;
+import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
@@ -10,25 +14,31 @@ import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Iterator;
+import java.util.Scanner;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 import jclavard.ClavardAMUUtils;
 import jclavard.ConnectSyntaxException;
 import jclavard.MessageSyntaxException;
+import jclavard.Peer;
 
 public class ServerClavarde {
     ServerSocketChannel serverSocketChannel;
     //private final Executor executor;
     private ArrayList<ChatClient> clients;
+    private ArrayList<Socket> servers;
     private Selector selector;
+    private int port;
 
-    public ServerClavarde() {
+    public ServerClavarde(int port) {
+        this.port = port;
         //executor = Executors.newWorkStealingPool();
         clients = new ArrayList<>();
+        servers = new ArrayList<>();
     }
 
-    public void start(int port) {
+    public void start() {
         try {
             serverSocketChannel = ServerSocketChannel.open();
             serverSocketChannel.bind(new InetSocketAddress("localhost", port));
@@ -40,7 +50,11 @@ public class ServerClavarde {
             System.err.println("Erreur lancement serveur");
             e.printStackTrace();
         }
-        
+
+
+        System.out.println("Connecting to peers...");
+        connectToServers();
+
         System.out.println("Waiting for client...");
         while(true){
             try {
@@ -123,14 +137,19 @@ public class ServerClavarde {
             ByteBuffer buffer = ByteBuffer.allocate(256);
             client.read(buffer);
             String message = new String(buffer.array()).trim();
-            String pseudo;
-            pseudo = ClavardAMUUtils.checkConnectionSyntaxe(message);
-            
-            chatClient.accept(pseudo);
-                        
-            clients.add(chatClient);
-            System.out.println("Client accepted "+pseudo);
-            
+
+            if(ClavardAMUUtils.isServerConnect(message)){
+                chatClient.acceptServer();
+                System.out.println("Server registered");
+            }else{
+                String pseudo;
+                pseudo = ClavardAMUUtils.checkConnectionSyntaxe(message);
+
+                chatClient.accept(pseudo);
+
+                clients.add(chatClient);
+                System.out.println("Client accepted "+pseudo);
+            }
         } catch (IOException ex) {
             Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex);
         } catch (ConnectSyntaxException ex) {
@@ -180,8 +199,7 @@ public class ServerClavarde {
     private void writable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
         SocketChannel client = (SocketChannel) key.channel();
         ChatClient chatClient = (ChatClient) key.attachment();
-        try{   
-            
+        try{
             if(chatClient.queue.isEmpty()){
                 client.register(selector, SelectionKey.OP_READ, key.attachment());
                 return;
@@ -215,5 +233,29 @@ public class ServerClavarde {
         
         clients.clear();
     }
-    
+
+    public void connectToServers(){
+        ArrayList<Peer> peers = ClavardAMUUtils.readConfig();
+
+        peers.forEach(peer -> {
+            try {
+                System.out.println(peer.adress+" "+peer.port+" "+serverSocketChannel.getLocalAddress());
+                InetSocketAddress targetAdress = new InetSocketAddress(peer.adress, peer.port);
+                if(targetAdress.equals(serverSocketChannel.getLocalAddress())){
+                    System.out.println("UI");
+                    return;
+                }
+
+                Socket socket = new Socket();
+
+                socket.connect(targetAdress);
+                DataOutputStream dataOutputStream = new DataOutputStream(socket.getOutputStream());
+                dataOutputStream.writeUTF("SERVERCONNECT");
+                System.out.println("CONNECT TO SERV");
+                servers.add(socket);
+            } catch (IOException e) {
+                e.printStackTrace();
+            }
+        });
+    }
 }

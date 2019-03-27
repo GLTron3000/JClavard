@@ -8,11 +8,13 @@ public class ChatClient {
     ArrayBlockingQueue queue;
     String pseudo;
     boolean accepted;
+    boolean server;
 
     public ChatClient(ArrayBlockingQueue queue, String pseudo) {
         this.queue = queue;
         this.pseudo = pseudo;
         this.accepted = false;
+        this.server = false;
     }
 
     public ChatClient(SocketChannel socket) {
@@ -25,6 +27,12 @@ public class ChatClient {
     public void accept(String pseudo){
         queue = new ArrayBlockingQueue(1024);
         this.pseudo = pseudo;
+        accepted = true;
+    }
+
+    public void acceptServer(){
+        queue = new ArrayBlockingQueue(1024);
+        server = true;
         accepted = true;
     }
 

@@ -30,9 +30,11 @@ public class ClientGUI {
     private VBox vBoxError;
     private TextField textFieldPseudo;
     private TextField textFieldAdress;
+    private TextField textFieldPort;
     private TextField textFieldChat;
     public String pseudo;
     private String adress;
+    private int port;
     private Text chat;
     public Semaphore semaphore;
     
@@ -110,13 +112,15 @@ public class ClientGUI {
         button.setOnAction((ActionEvent event) -> {
             pseudo = textFieldPseudo.getText();
             adress = textFieldAdress.getText();
+            String portStr = textFieldPort.getText();
+            port = Integer.parseInt(portStr);
             
             if(pseudo.isEmpty() || adress.isEmpty()){
                 
             }else{
                 
                 try {
-                    client = new ClientClavarde(12345,adress, this);
+                    client = new ClientClavarde(port,adress, this);
                     stage.setScene(scene_chat);
                     client.startListen();
                 }catch (IOException ex) {
@@ -131,17 +135,20 @@ public class ClientGUI {
     private void initPseudo(){
         borderPPseudo = new BorderPane();
         
-        textFieldPseudo = new TextField();
-        textFieldAdress = new TextField();
+        textFieldPseudo = new TextField("zorg");
+        textFieldAdress = new TextField("localhost");
+        textFieldPort = new TextField("12345");
         
         Label labelPseudo = new Label("Pseudo :");
         Label labelAdress = new Label("Adresse serveur :");
+        Label labelPort = new Label("Port serveur :");
         
         Button buttonValidPseudo = initBTValidPseudo();
         
         HBox hboxButton = new HBox();
         HBox hboxPseudo = new HBox();
         HBox hboxAdress = new HBox();
+        HBox hboxPort = new HBox();
         
         hboxButton.getChildren().add(buttonValidPseudo);
         hboxButton.setAlignment(Pos.CENTER);
@@ -149,12 +156,14 @@ public class ClientGUI {
         hboxPseudo.setAlignment(Pos.CENTER);     
         hboxAdress.getChildren().addAll(labelAdress, textFieldAdress);
         hboxAdress.setAlignment(Pos.CENTER);
-        
-        
+        hboxPort.getChildren().addAll(labelPort, textFieldPort);
+        hboxPort.setAlignment(Pos.CENTER);
+
+
         VBox vboxCenter = new VBox();
         vboxCenter.setAlignment(Pos.CENTER);
         vboxCenter.setSpacing(10);
-        vboxCenter.getChildren().addAll(hboxPseudo, hboxAdress);
+        vboxCenter.getChildren().addAll(hboxPseudo, hboxAdress, hboxPort);
         
         borderPPseudo.setPadding(new Insets(10));
         borderPPseudo.setCenter(vboxCenter);
