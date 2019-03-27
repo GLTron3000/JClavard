@@ -29,7 +29,7 @@ public class Listener implements Runnable{
                 
                 try {
                     gui.semaphore.acquire();
-                    gui.addMessage(message.split(">")[0], message.split(">")[1]);
+                    gui.addMessage(message.split(" ")[1], message.split(" ")[2]);
                     gui.semaphore.release();
                 } catch (InterruptedException ex) {
                     Logger.getLogger(ClientGUI.class.getName()).log(Level.SEVERE, null, ex);

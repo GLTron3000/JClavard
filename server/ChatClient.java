@@ -10,11 +10,13 @@ public class ChatClient {
     boolean accepted;
     boolean server;
 
-    public ChatClient(ArrayBlockingQueue queue, String pseudo) {
-        this.queue = queue;
+    public ChatClient(SocketChannel socket, String pseudo) {
+        this.socket = socket;
         this.pseudo = pseudo;
         this.accepted = false;
         this.server = false;
+        queue = new ArrayBlockingQueue(1024);
+        accepted = true;
     }
 
     public ChatClient(SocketChannel socket) {
