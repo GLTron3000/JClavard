@@ -72,7 +72,7 @@ public class ServerGUI {
         Button stopBT = stopBT();
         Button quitBT = quitBT();
 
-        textFieldPort = new TextField();
+        textFieldPort = new TextField("12345");
         
         ScrollPane scrollPane = new ScrollPane();
         scrollPane.setContent(chat);

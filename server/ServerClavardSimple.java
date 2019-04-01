@@ -1,25 +1,29 @@
 package server;
 
-import jclavard.ClavardAMUUtils;
-import jclavard.ConnectSyntaxException;
-import jclavard.MessageSyntaxException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.*;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import jclavard.ClavardAMUUtils;
+import jclavard.ConnectSyntaxException;
+import jclavard.MessageSyntaxException;
 
-public class ServerClavardMaster implements ServerClavarde{
+public class ServerClavardSimple implements ServerClavarde{
     ServerSocketChannel serverSocketChannel;
-    ArrayList<ChatClient> clients;
-    Selector selector;
-    final int port;
+    private ArrayList<ChatClient> clients;
+    private Selector selector;
+    private int port;
 
-    public ServerClavardMaster(int port) {
+    public ServerClavardSimple(int port) {
         this.port = port;
         clients = new ArrayList<>();
     }
@@ -38,10 +42,7 @@ public class ServerClavardMaster implements ServerClavarde{
             e.printStackTrace();
         }
 
-
-        System.out.println("Starting Master Server...");
-
-        System.out.println("Waiting for client and servers...");
+        System.out.println("Waiting for client...");
         while(true){
             try {
                 selector.select();
@@ -70,79 +71,72 @@ public class ServerClavardMaster implements ServerClavarde{
                 iterator.remove();
             }
         }
-
+       
     }
 
-    void broadcastMessage(String message, ChatClient currentClient){
+    public void broadcastMessage(String message, ChatClient currentClient){
         clients.forEach( client ->{
             if(!client.equals(currentClient)){
-                if(currentClient.server) client.queue.add(message.split(" ",2)[0]+"> "+message.split(" ",2)[1]);
+                if(currentClient.server) client.queue.add(message);
                 else client.queue.add(currentClient.pseudo+"> "+message);
             }
         });
     }
 
-    void setAllWrite(Selector selector){
+    public void setAllWrite(Selector selector){
         clients.forEach(client ->{
             try {
                 client.socket.register(selector, SelectionKey.OP_WRITE, client);
             } catch (ClosedChannelException ex) {
-                Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex);
+                Logger.getLogger(ServerClavardeBAK.class.getName()).log(Level.SEVERE, null, ex);
             }
         });
     }
-
-    void acceptable(Selector selector){
+    
+    private void acceptable(Selector selector){
         SocketChannel client;
         try {
             System.out.println("Client connected");
             client = serverSocketChannel.accept();
             client.configureBlocking(false);
-
+            
             ChatClient chatClient = new ChatClient(client);
 
-            client.register(selector, SelectionKey.OP_READ, chatClient);
+            client.register(selector, SelectionKey.OP_READ, chatClient);  
         } catch (IOException ex) {
             System.err.println("Erreur connection client");
             ex.printStackTrace();
         }
     }
-
-    void readable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
+    
+    private void readable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
         SocketChannel client = (SocketChannel) key.channel();
         ChatClient chatClient = (ChatClient) key.attachment();
-
+        
         if(chatClient.accepted){
             readAndBroadcast(key, selector, selectedKeys);
         }else{
             tryToAccept(client, chatClient);
         }
-
+        
     }
-
-    void tryToAccept(SocketChannel client, ChatClient chatClient){
+    
+    private void tryToAccept(SocketChannel client, ChatClient chatClient){
         try {
-
+            
             ByteBuffer buffer = ByteBuffer.allocate(256);
             client.read(buffer);
             String message = new String(buffer.array()).trim();
+            String pseudo;
+            pseudo = ClavardAMUUtils.checkConnectionSyntaxe(message);
 
-            if(ClavardAMUUtils.isServerConnect(message)){
-                chatClient.acceptServer();
-                chatClient.pseudo = "serveur";
-                clients.add(chatClient);
-                System.out.println("Server registered");
-            }else{
-                String pseudo;
-                pseudo = ClavardAMUUtils.checkConnectionSyntaxe(message);
+            chatClient.accept(pseudo);
 
-                chatClient.accept(pseudo);
-
-                clients.add(chatClient);
-                System.out.println("Client accepted "+pseudo);
-            }
+            clients.add(chatClient);
+            System.out.println("Client accepted "+pseudo);
+            
         } catch (IOException ex) {
-            Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex);
+            Logger.getLogger(ServerClavardeBAK.class.getName()).log(Level.SEVERE, null, ex);
         } catch (ConnectSyntaxException ex) {
             System.err.println("Erreur protocole CONNECTION");
             sendMessage(client, ex.errorMessage());
@@ -152,39 +146,31 @@ public class ServerClavardMaster implements ServerClavarde{
                 System.err.println("Erreur fermeture");
             }
         }
-
+            
     }
-
-    void readAndBroadcast(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
+    
+    private void readAndBroadcast(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
         SocketChannel client = (SocketChannel) key.channel();
         try{
             ByteBuffer buffer = ByteBuffer.allocate(256);
             if(client.read(buffer)==-1){
                 ChatClient cc = (ChatClient)key.attachment();
                 client.close();
-                clients.remove(cc);
+                clients.remove(cc);  
                 System.out.println(cc.pseudo+" disconnected");
                 return;
             }
 
-
             String unconfirmedMessage = new String(buffer.array()).trim();
             ChatClient cc = (ChatClient)key.attachment();
-
-            System.out.println("Message from "+cc.pseudo+" : "+unconfirmedMessage);
-
+            
+            System.out.println("Message from "+cc.pseudo+" : "+unconfirmedMessage);  
+            
             if(!unconfirmedMessage.equals("")){
                 String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
-                String finalMessage;
-                if(cc.pseudo.equals("serveur")){
-                    String splitedMessage[] = unconfirmedMessage.split(" ",3);
-                    finalMessage = splitedMessage[1]+" "+splitedMessage[2];
-                    System.out.println("From server | "+finalMessage);
-                }else{
-                    finalMessage = message;
-                    System.out.println(cc.pseudo+"> "+message);
-                }
-                broadcastMessage(finalMessage, (ChatClient) key.attachment());
+                System.out.println(cc.pseudo+"> "+message);
+                
+                broadcastMessage(message, (ChatClient) key.attachment());
                 setAllWrite(selector);
             }
         }catch (IOException e) {
@@ -192,11 +178,10 @@ public class ServerClavardMaster implements ServerClavarde{
         } catch (MessageSyntaxException ex) {
             System.err.println("Erreur protocole MSG");
             sendMessage(client, ex.errorMessage());
-            System.exit(1);
         }
     }
-
-    void writable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
+    
+    private void writable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
         SocketChannel client = (SocketChannel) key.channel();
         ChatClient chatClient = (ChatClient) key.attachment();
         try{
@@ -206,20 +191,19 @@ public class ServerClavardMaster implements ServerClavarde{
             }
 
             String message = (String) chatClient.queue.poll();
-            ClavardAMUUtils.sendMessageClavardamu(client, message);
+            sendMessage(client, message);
         }catch (IOException e) {
             System.err.println("Client communication error");
         }
     }
-
-    void sendMessage(SocketChannel client, String message){
+    
+    private void sendMessage(SocketChannel client, String message){
         try {
-            ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
+            ByteBuffer buffer = ByteBuffer.wrap(message.getBytes()); 
             client.write(buffer);
         } catch (IOException ex) {
             System.err.println("Erreur envoi message");
             ex.printStackTrace();
         }
     }
-
 }

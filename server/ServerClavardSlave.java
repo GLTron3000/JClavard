@@ -3,31 +3,30 @@ package server;
 import jclavard.ClavardAMUUtils;
 import jclavard.ConnectSyntaxException;
 import jclavard.MessageSyntaxException;
-import jclavard.Peer;
-
-import java.io.DataOutputStream;
 import java.io.IOException;
 import java.net.InetSocketAddress;
-import java.net.Socket;
 import java.nio.ByteBuffer;
 import java.nio.channels.*;
-import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
 
-public class ServerClavardSlave implements ServerClavarde{
-    ServerSocketChannel serverSocketChannel;
-    private ArrayList<ChatClient> clients;
-    private Selector selector;
-    private int port;
-    private SocketChannel mmaster;
+public class ServerClavardSlave extends ServerClavardMaster{
+    private SocketChannel masterSocket;
+    private final InetSocketAddress masterAddress;
+
     public ServerClavardSlave(int port) {
-        this.port = port;
-        clients = new ArrayList<>();
+        super(port);
+        this.masterAddress = null;
     }
 
+    public ServerClavardSlave(int port, InetSocketAddress masterAddress) {
+        super(port);
+        this.masterAddress = masterAddress;
+    }
+
+    @Override
     public void start() {
         try {
             serverSocketChannel = ServerSocketChannel.open();
@@ -42,8 +41,8 @@ public class ServerClavardSlave implements ServerClavarde{
         }
 
 
-        System.out.println("Connecting to peers...");
-        connectToServers(selector);
+        System.out.println("Connecting to master server...");
+        connectToMaster(selector);
 
         System.out.println("Waiting for client...");
         while(true){
@@ -77,54 +76,8 @@ public class ServerClavardSlave implements ServerClavarde{
 
     }
 
-    public void broadcastMessage(String message, ChatClient currentClient){
-        clients.forEach( client ->{
-            if(!client.equals(currentClient)){
-                if(currentClient.server) client.queue.add(message);
-                else client.queue.add(currentClient.pseudo+"> "+message);
-            }
-        });
-    }
-
-    public void setAllWrite(Selector selector){
-        clients.forEach(client ->{
-            try {
-                client.socket.register(selector, SelectionKey.OP_WRITE, client);
-            } catch (ClosedChannelException ex) {
-                Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex);
-            }
-        });
-    }
-
-    private void acceptable(Selector selector){
-        SocketChannel client;
-        try {
-            System.out.println("Client connected");
-            client = serverSocketChannel.accept();
-            client.configureBlocking(false);
-
-            ChatClient chatClient = new ChatClient(client);
-
-            client.register(selector, SelectionKey.OP_READ, chatClient);
-        } catch (IOException ex) {
-            System.err.println("Erreur connection client");
-            ex.printStackTrace();
-        }
-    }
-
-    private void readable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
-        SocketChannel client = (SocketChannel) key.channel();
-        ChatClient chatClient = (ChatClient) key.attachment();
-
-        if(chatClient.accepted){
-            readAndBroadcast(key, selector, selectedKeys);
-        }else{
-            tryToAccept(client, chatClient);
-        }
-
-    }
-
-    private void tryToAccept(SocketChannel client, ChatClient chatClient){
+    @Override
+    void tryToAccept(SocketChannel client, ChatClient chatClient){
         try {
 
             ByteBuffer buffer = ByteBuffer.allocate(256);
@@ -159,7 +112,8 @@ public class ServerClavardSlave implements ServerClavarde{
 
     }
 
-    private void readAndBroadcast(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
+    @Override
+    void readAndBroadcast(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
         SocketChannel client = (SocketChannel) key.channel();
         try{
             ByteBuffer buffer = ByteBuffer.allocate(256);
@@ -170,7 +124,6 @@ public class ServerClavardSlave implements ServerClavarde{
                 System.out.println(cc.pseudo+" disconnected");
                 return;
             }
-
 
             String unconfirmedMessage = new String(buffer.array()).trim();
             ChatClient cc = (ChatClient)key.attachment();
@@ -184,12 +137,14 @@ public class ServerClavardSlave implements ServerClavarde{
                     String splitedMessage[] = unconfirmedMessage.split(" ",3);
                     finalMessage = splitedMessage[1]+" "+splitedMessage[2];
                     System.out.println("From server | "+finalMessage);
+                    broadcastMessageFromMaster(finalMessage);
                 }else{
                     finalMessage = message;
                     System.out.println(cc.pseudo+"> "+message);
                     sendMessageToMaster(message, cc.pseudo);
+                    broadcastMessage(finalMessage, (ChatClient) key.attachment());
                 }
-                broadcastMessage(finalMessage, (ChatClient) key.attachment());
+                
                 setAllWrite(selector);
             }
         }catch (IOException e) {
@@ -200,56 +155,29 @@ public class ServerClavardSlave implements ServerClavarde{
         }
     }
 
-    private void writable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
-        SocketChannel client = (SocketChannel) key.channel();
-        ChatClient chatClient = (ChatClient) key.attachment();
-        try{
-            if(chatClient.queue.isEmpty()){
-                client.register(selector, SelectionKey.OP_READ, key.attachment());
-                return;
-            }
-
-            String message = (String) chatClient.queue.poll();
-            sendMessage(client, message);
-        }catch (IOException e) {
-            System.err.println("Client communication error");
-        }
-    }
-
-    private void sendMessage(SocketChannel client, String message){
-        try {
-            ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
-            client.write(buffer);
-        } catch (IOException ex) {
-            System.err.println("Erreur envoi message");
-            ex.printStackTrace();
-        }
-    }
-
     private void sendMessageToMaster(String message, String pseudo){
-        String finalMessage = new String("MSG "+pseudo+" "+message);
-        sendMessage(mmaster, finalMessage);
+        String finalMessage = "MSG "+pseudo+" "+message;
+        sendMessage(masterSocket, finalMessage);
     }
+    
+    private void connectToMaster(Selector selector){
+        try {
+            masterSocket = SocketChannel.open(new InetSocketAddress("localhost",12345));
+            masterSocket.configureBlocking(false);
+            sendMessage(masterSocket, "SERVERCONNECT");
 
-    public void connectToServers(Selector selector){
-        ArrayList<Peer> peers = ClavardAMUUtils.readConfig();
-        Peer master;
-        for(Peer p: peers ){
-            if(p.isMaster){
-                master=p;
-                try {
-                    mmaster = SocketChannel.open(new InetSocketAddress(master.adress,master.port));
-                    mmaster.configureBlocking(false);
-                    sendMessage(mmaster, "SERVERCONNECT");
-
-                    mmaster.register(selector, SelectionKey.OP_READ, new ChatClient(mmaster, "masterServer"));
-                    System.out.println("CONNECT TO MASTER SERV");
-                } catch (IOException e) {
-                    e.printStackTrace();
-                }
-                break;
-            }
+            masterSocket.register(selector, SelectionKey.OP_READ, new ChatClient(masterSocket, "masterServer"));
+            System.out.println("Connected to master server !");
+        } catch (IOException e) {
+            e.printStackTrace();
         }
-
+    }
+    
+    private void broadcastMessageFromMaster(String message){
+        clients.forEach( client ->{
+            if(!client.socket.equals(masterSocket)){
+                client.queue.add(message);
+            }
+        });
     }
 }

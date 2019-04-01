@@ -40,9 +40,9 @@ public class ClientGUI {
     
     private ClientClavarde client;
     
-    public void addMessage(String pseudo, String message){
+    public void addMessage(String message){
         String current_chat = chat.getText();
-        chat.setText(current_chat.concat(pseudo+"> "+message+"\n"));
+        chat.setText(current_chat.concat(message+"\n"));
     }
     
     private Button initBTSend() {
@@ -62,7 +62,7 @@ public class ClientGUI {
 
                 try {
                     semaphore.acquire();
-                    addMessage(pseudo, message);
+                    addMessage(pseudo+"> "+message);
                     semaphore.release();
                 } catch (InterruptedException ex) {
                     Logger.getLogger(ClientGUI.class.getName()).log(Level.SEVERE, null, ex);

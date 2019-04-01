@@ -1,25 +1,36 @@
 package server;
 
-import jclavard.ClavardAMUUtils;
-import jclavard.ConnectSyntaxException;
-import jclavard.MessageSyntaxException;
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.ByteBuffer;
-import java.nio.channels.*;
+import java.nio.channels.ClosedChannelException;
+import java.nio.channels.SelectionKey;
+import java.nio.channels.Selector;
+import java.nio.channels.ServerSocketChannel;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.Set;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import jclavard.ClavardAMUUtils;
+import jclavard.ConnectSyntaxException;
+import jclavard.MessageSyntaxException;
+import jclavard.Peer;
 
-public class ServerClavardMaster implements ServerClavarde{
+public class ServerClavardDecentral implements ServerClavarde{
+
     ServerSocketChannel serverSocketChannel;
     ArrayList<ChatClient> clients;
     Selector selector;
     final int port;
+    
+    //int[] broadcast;
+    ArrayList<ChatServer> servers;
+    ChatServer currentServer;
+    //Map<SocketChannel,Integer> servers;
 
-    public ServerClavardMaster(int port) {
+    public ServerClavardDecentral(int port) {
         this.port = port;
         clients = new ArrayList<>();
     }
@@ -39,7 +50,7 @@ public class ServerClavardMaster implements ServerClavarde{
         }
 
 
-        System.out.println("Starting Master Server...");
+        System.out.println("Starting Decentralized server...");
 
         System.out.println("Waiting for client and servers...");
         while(true){
@@ -95,7 +106,7 @@ public class ServerClavardMaster implements ServerClavarde{
     void acceptable(Selector selector){
         SocketChannel client;
         try {
-            System.out.println("Client connected");
+            System.out.println("Client or server connected");
             client = serverSocketChannel.accept();
             client.configureBlocking(false);
 
@@ -111,8 +122,9 @@ public class ServerClavardMaster implements ServerClavarde{
     void readable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
         SocketChannel client = (SocketChannel) key.channel();
         ChatClient chatClient = (ChatClient) key.attachment();
-
-        if(chatClient.accepted){
+        if(chatClient == null){
+            serverRead(client, (ChatServer) key.attachment());
+        }else if(chatClient.accepted){
             readAndBroadcast(key, selector, selectedKeys);
         }else{
             tryToAccept(client, chatClient);
@@ -128,10 +140,7 @@ public class ServerClavardMaster implements ServerClavarde{
             String message = new String(buffer.array()).trim();
 
             if(ClavardAMUUtils.isServerConnect(message)){
-                chatClient.acceptServer();
-                chatClient.pseudo = "serveur";
-                clients.add(chatClient);
-                System.out.println("Server registered");
+                connectServer(client);
             }else{
                 String pseudo;
                 pseudo = ClavardAMUUtils.checkConnectionSyntaxe(message);
@@ -176,14 +185,8 @@ public class ServerClavardMaster implements ServerClavarde{
             if(!unconfirmedMessage.equals("")){
                 String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
                 String finalMessage;
-                if(cc.pseudo.equals("serveur")){
-                    String splitedMessage[] = unconfirmedMessage.split(" ",3);
-                    finalMessage = splitedMessage[1]+" "+splitedMessage[2];
-                    System.out.println("From server | "+finalMessage);
-                }else{
-                    finalMessage = message;
-                    System.out.println(cc.pseudo+"> "+message);
-                }
+                finalMessage = message;
+                System.out.println(cc.pseudo+"> "+message);
                 broadcastMessage(finalMessage, (ChatClient) key.attachment());
                 setAllWrite(selector);
             }
@@ -222,4 +225,75 @@ public class ServerClavardMaster implements ServerClavarde{
         }
     }
 
+    void initDecent(){
+        //READ FILE AND GET NUMBER OF PEERS
+        
+        int numberOfPeers = 1;
+        
+    }
+    
+    void tryToConnectToServers(){
+        ArrayList<Peer> peers = ClavardAMUUtils.readConfig();
+        servers = new ArrayList<>();
+        
+        peers.forEach( peer -> {
+            try {
+                SocketChannel socket = SocketChannel.open(new InetSocketAddress(peer.adress, peer.port));
+                
+                connectServer(socket);
+            } catch (IOException ex) {
+                System.out.println("Server "+peer.adress+" on "+peer.port+" is unreachable");
+            }
+        });
+    }
+
+    void connectServer(SocketChannel socket){
+        try {
+            socket.configureBlocking(false);
+            sendMessage(socket, "SERVERCONNECT");
+            ChatServer cs = new ChatServer(socket);
+            if(socket.getLocalAddress() == socket.getRemoteAddress()) currentServer = cs;
+            servers.add(cs);
+            socket.register(selector, SelectionKey.OP_READ, cs.queue);
+        } catch (IOException ex) {
+            Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+
+    private void serverRead(SocketChannel server, ChatServer cs){
+        try {
+            ByteBuffer buffer = ByteBuffer.allocate(256);
+            if(server.read(buffer)==-1){
+                cs.socket.close();
+                servers.remove(cs);
+                System.out.println("Server disconnected");
+                return;
+            }
+
+            String unconfirmedMessage = new String(buffer.array()).trim();
+
+            System.out.println("Message from "+cs.socket.getRemoteAddress()+" : "+unconfirmedMessage);
+
+            if(!unconfirmedMessage.equals("")){
+                String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
+                //broadcastMessage();
+                setAllWrite(selector);
+            }
+        } catch (IOException ex) {
+            Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (MessageSyntaxException ex) {
+            Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
+        }
+    }
+    
+    void co_broadcast(String message, ChatClient cc){      
+        servers.forEach( server -> {
+            server.queue.add(message);
+        });
+        setAllWrite(selector);
+        servers.get(servers.indexOf(currentServer)).broadcast++;
+        
+    }
+    
+    
 }

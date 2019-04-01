@@ -2,6 +2,9 @@ package jclavard;
 
 import java.io.File;
 import java.io.FileNotFoundException;
+import java.io.IOException;
+import java.nio.ByteBuffer;
+import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
 import java.util.Scanner;
 
@@ -51,5 +54,16 @@ public class ClavardAMUUtils {
         }
 
         return peers;
+    }
+    
+    public static void sendMessageClavardamu(SocketChannel socket, String message){
+        try {
+            message="MSG "+message;
+            ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
+            socket.write(buffer);
+        } catch (IOException ex) {
+            System.err.println("Erreur envoi message clavardamu");
+            ex.printStackTrace();
+        }
     }
 }
