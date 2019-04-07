@@ -21,7 +21,7 @@ public class ServerClavardSimple implements ServerClavarde{
     ServerSocketChannel serverSocketChannel;
     private ArrayList<ChatClient> clients;
     private Selector selector;
-    private int port;
+    private final int port;
 
     public ServerClavardSimple(int port) {
         this.port = port;
@@ -76,10 +76,8 @@ public class ServerClavardSimple implements ServerClavarde{
 
     public void broadcastMessage(String message, ChatClient currentClient){
         clients.forEach( client ->{
-            if(!client.equals(currentClient)){
-                if(currentClient.server) client.queue.add(message);
-                else client.queue.add(currentClient.pseudo+"> "+message);
-            }
+            if(currentClient.server) client.queue.add(message);
+            else client.queue.add(currentClient.pseudo+"> "+message);
         });
     }
 
@@ -191,7 +189,8 @@ public class ServerClavardSimple implements ServerClavarde{
             }
 
             String message = (String) chatClient.queue.poll();
-            sendMessage(client, message);
+            ClavardAMUUtils.sendMessageClavardamu(client, message);
+            //sendMessage(client, message);
         }catch (IOException e) {
             System.err.println("Client communication error");
         }

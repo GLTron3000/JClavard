@@ -26,7 +26,7 @@ public class ClavardAMUUtils {
     }
 
     public static boolean isServerConnect(String message){
-        return message.equals("SERVERCONNECT");
+        return message.startsWith("SERVERCONNECT");
     }
 
     public static ArrayList<Peer> readConfig(){

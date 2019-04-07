@@ -9,8 +9,16 @@ import java.util.ArrayList;
 
 public class ServerRun implements Runnable{
     private ServerClavarde server;
-
-    public ServerRun(int port) {
+    
+    public ServerRun(int port, int type) {
+        switch(type){
+            case 0 : initSimple(port); break;
+            case 1 : initFederated(port); break;
+            case 2 : initDecentral(port); break;
+        }
+    }
+    
+    private void initFederated(int port){
         ArrayList<Peer> peers = ClavardAMUUtils.readConfig();
         Peer master;
         for(Peer p: peers ){
@@ -34,7 +42,15 @@ public class ServerRun implements Runnable{
             }
         }
     }
+    
+    private void initSimple(int port){
+        server = new ServerClavardSimple(port);
+    }
 
+    private void initDecentral(int port){
+        server = new ServerClavardDecentral(port);
+    }
+    
     @Override
     public void run() {
         server.start();

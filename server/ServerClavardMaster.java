@@ -75,10 +75,8 @@ public class ServerClavardMaster implements ServerClavarde{
 
     void broadcastMessage(String message, ChatClient currentClient){
         clients.forEach( client ->{
-            if(!client.equals(currentClient)){
-                if(currentClient.server) client.queue.add(message.split(" ",2)[0]+"> "+message.split(" ",2)[1]);
-                else client.queue.add(currentClient.pseudo+"> "+message);
-            }
+            if(currentClient.server) client.queue.add(message.split(" ",2)[0]+"> "+message.split(" ",2)[1]);
+            else client.queue.add(currentClient.pseudo+"> "+message);
         });
     }
 

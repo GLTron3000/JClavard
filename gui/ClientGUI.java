@@ -59,14 +59,14 @@ public class ClientGUI {
                     System.err.println("Erreur connection serveur "+adress);
                     stage.setScene(scene_error);
                 }
-
+                /*
                 try {
                     semaphore.acquire();
                     addMessage(pseudo+"> "+message);
                     semaphore.release();
                 } catch (InterruptedException ex) {
                     Logger.getLogger(ClientGUI.class.getName()).log(Level.SEVERE, null, ex);
-                }
+                }*/
                 
             }
         });

@@ -2,6 +2,7 @@ package server;
 
 import java.io.IOException;
 import java.net.InetSocketAddress;
+import java.net.SocketAddress;
 import java.nio.ByteBuffer;
 import java.nio.channels.ClosedChannelException;
 import java.nio.channels.SelectionKey;
@@ -9,30 +10,38 @@ import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.Iterator;
+import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.TimeUnit;
 import java.util.logging.Level;
 import java.util.logging.Logger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+import javafx.util.Pair;
 import jclavard.ClavardAMUUtils;
 import jclavard.ConnectSyntaxException;
 import jclavard.MessageSyntaxException;
 import jclavard.Peer;
 
-public class ServerClavardDecentral implements ServerClavarde{
+public class ServerClavardDecentral implements ServerClavarde {
 
     ServerSocketChannel serverSocketChannel;
     ArrayList<ChatClient> clients;
     Selector selector;
     final int port;
-    
-    //int[] broadcast;
+
     ArrayList<ChatServer> servers;
     ChatServer currentServer;
-    //Map<SocketChannel,Integer> servers;
+    ArrayList<WaitingMessage> waitList;
 
     public ServerClavardDecentral(int port) {
         this.port = port;
         clients = new ArrayList<>();
+        servers = new ArrayList<>();
+        waitList = new ArrayList<>();
     }
 
     @Override
@@ -49,11 +58,11 @@ public class ServerClavardDecentral implements ServerClavarde{
             e.printStackTrace();
         }
 
-
         System.out.println("Starting Decentralized server...");
+        tryToConnectToServers();
 
         System.out.println("Waiting for client and servers...");
-        while(true){
+        while (true) {
             try {
                 selector.select();
             } catch (IOException ex) {
@@ -63,18 +72,18 @@ public class ServerClavardDecentral implements ServerClavarde{
             selectedKeys = selector.selectedKeys();
             Iterator<SelectionKey> iterator = selectedKeys.iterator();
 
-            while(iterator.hasNext()) {
+            while (iterator.hasNext()) {
                 SelectionKey key = iterator.next();
 
-                if(!key.isValid()){
+                if (!key.isValid()) {
                     continue;
                 }
 
                 if (key.isAcceptable()) {
                     acceptable(selector);
-                }else if (key.isReadable()) {
+                } else if (key.isReadable()) {
                     readable(key, selector, selectedKeys);
-                }else if(key.isWritable()){
+                } else if (key.isWritable()) {
                     writable(key, selector, selectedKeys);
                 }
 
@@ -84,26 +93,7 @@ public class ServerClavardDecentral implements ServerClavarde{
 
     }
 
-    void broadcastMessage(String message, ChatClient currentClient){
-        clients.forEach( client ->{
-            if(!client.equals(currentClient)){
-                if(currentClient.server) client.queue.add(message.split(" ",2)[0]+"> "+message.split(" ",2)[1]);
-                else client.queue.add(currentClient.pseudo+"> "+message);
-            }
-        });
-    }
-
-    void setAllWrite(Selector selector){
-        clients.forEach(client ->{
-            try {
-                client.socket.register(selector, SelectionKey.OP_WRITE, client);
-            } catch (ClosedChannelException ex) {
-                Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex);
-            }
-        });
-    }
-
-    void acceptable(Selector selector){
+    void acceptable(Selector selector) {
         SocketChannel client;
         try {
             System.out.println("Client or server connected");
@@ -119,36 +109,73 @@ public class ServerClavardDecentral implements ServerClavarde{
         }
     }
 
-    void readable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
+    void readable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys) {
         SocketChannel client = (SocketChannel) key.channel();
-        ChatClient chatClient = (ChatClient) key.attachment();
-        if(chatClient == null){
+        
+        if (key.attachment() instanceof ChatServer) {
             serverRead(client, (ChatServer) key.attachment());
-        }else if(chatClient.accepted){
-            readAndBroadcast(key, selector, selectedKeys);
-        }else{
-            tryToAccept(client, chatClient);
+        } else if (key.attachment() instanceof ChatClient) {
+            ChatClient chatClient = (ChatClient) key.attachment();
+            if (chatClient.accepted) {
+                clientRead(key, selector, selectedKeys);
+            } else {
+                tryToAccept(client, chatClient);
+            }
+        }
+    }
+    
+    void writable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys) {
+        SocketChannel client = (SocketChannel) key.channel();
+        Object attachement = key.attachment();
+
+        ArrayBlockingQueue queue;
+        if (attachement instanceof ChatClient) {
+            ChatClient cc = (ChatClient) attachement;
+            queue = cc.queue;
+        } else if (attachement instanceof ChatServer) {
+            ChatServer cs = (ChatServer) attachement;
+            queue = cs.queue;
+        } else {
+            return;
         }
 
+        try {
+            if (queue.isEmpty()) {
+                client.register(selector, SelectionKey.OP_READ, key.attachment());
+                return;
+            }
+
+            String message = (String) queue.poll();
+            if(port == 12345) TimeUnit.SECONDS.sleep(0);
+            ClavardAMUUtils.sendMessageClavardamu(client, message);
+        } catch (IOException e) {
+            System.err.println("Communication error");
+        } catch (InterruptedException ex) {
+            Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
+        }
     }
 
-    void tryToAccept(SocketChannel client, ChatClient chatClient){
+    void tryToAccept(SocketChannel client, ChatClient chatClient) {
         try {
 
             ByteBuffer buffer = ByteBuffer.allocate(256);
             client.read(buffer);
             String message = new String(buffer.array()).trim();
 
-            if(ClavardAMUUtils.isServerConnect(message)){
-                connectServer(client);
-            }else{
+            if (ClavardAMUUtils.isServerConnect(message)) {
+                connectServer(client, Integer.parseInt(message.split(" ")[1]));
+                System.out.println("[\u001B[43mSERVER\u001B[0m] accepted");
+            } else {
                 String pseudo;
                 pseudo = ClavardAMUUtils.checkConnectionSyntaxe(message);
 
                 chatClient.accept(pseudo);
 
                 clients.add(chatClient);
-                System.out.println("Client accepted "+pseudo);
+                //broadcastMessageToClients(pseudo+" a rejoint la discussion");
+                //broadcastMessageToServers(pseudo+" a rejoint la discussion");
+                System.out.println("[\u001B[44mCLIENT\u001B[0m] accepted " + pseudo);
+                
             }
         } catch (IOException ex) {
             Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex);
@@ -164,33 +191,33 @@ public class ServerClavardDecentral implements ServerClavarde{
 
     }
 
-    void readAndBroadcast(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
+    void clientRead(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys) {
         SocketChannel client = (SocketChannel) key.channel();
-        try{
+        try {
             ByteBuffer buffer = ByteBuffer.allocate(256);
-            if(client.read(buffer)==-1){
-                ChatClient cc = (ChatClient)key.attachment();
+            if (client.read(buffer) == -1) {
+                ChatClient cc = (ChatClient) key.attachment();
                 client.close();
+                //broadcastMessageToClients(cc.pseudo+" a quitter la discussion");
+                //broadcastMessageToServers(cc.pseudo+" a quitter la discussion");
                 clients.remove(cc);
-                System.out.println(cc.pseudo+" disconnected");
+                System.out.println("[\u001B[33mWARNING\u001B[0m] Client "+cc.pseudo+" disconnected");
                 return;
             }
 
-
             String unconfirmedMessage = new String(buffer.array()).trim();
-            ChatClient cc = (ChatClient)key.attachment();
+            ChatClient cc = (ChatClient) key.attachment();
 
-            System.out.println("Message from "+cc.pseudo+" : "+unconfirmedMessage);
+            System.out.println("[\u001B[44mCLIENT\u001B[0m] Message from " + cc.pseudo + " : " + unconfirmedMessage);
 
-            if(!unconfirmedMessage.equals("")){
+            if (!unconfirmedMessage.equals("")) {
                 String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
                 String finalMessage;
-                finalMessage = message;
-                System.out.println(cc.pseudo+"> "+message);
-                broadcastMessage(finalMessage, (ChatClient) key.attachment());
+                finalMessage = cc.pseudo + "> " + message;
+                broadcastMessageToServers(finalMessage);
                 setAllWrite(selector);
             }
-        }catch (IOException e) {
+        } catch (IOException e) {
             System.err.println("Client communication error");
         } catch (MessageSyntaxException ex) {
             System.err.println("Erreur protocole MSG");
@@ -199,23 +226,7 @@ public class ServerClavardDecentral implements ServerClavarde{
         }
     }
 
-    void writable(SelectionKey key, Selector selector, Set<SelectionKey> selectedKeys){
-        SocketChannel client = (SocketChannel) key.channel();
-        ChatClient chatClient = (ChatClient) key.attachment();
-        try{
-            if(chatClient.queue.isEmpty()){
-                client.register(selector, SelectionKey.OP_READ, key.attachment());
-                return;
-            }
-
-            String message = (String) chatClient.queue.poll();
-            ClavardAMUUtils.sendMessageClavardamu(client, message);
-        }catch (IOException e) {
-            System.err.println("Client communication error");
-        }
-    }
-
-    void sendMessage(SocketChannel client, String message){
+    void sendMessage(SocketChannel client, String message) {
         try {
             ByteBuffer buffer = ByteBuffer.wrap(message.getBytes());
             client.write(buffer);
@@ -225,59 +236,84 @@ public class ServerClavardDecentral implements ServerClavarde{
         }
     }
 
-    void initDecent(){
-        //READ FILE AND GET NUMBER OF PEERS
-        
-        int numberOfPeers = 1;
-        
-    }
-    
-    void tryToConnectToServers(){
+    void tryToConnectToServers() {
+        System.out.println("---------------------[BEGIN CONFIGURATION]---------------------");
         ArrayList<Peer> peers = ClavardAMUUtils.readConfig();
-        servers = new ArrayList<>();
         
-        peers.forEach( peer -> {
+        peers.forEach(peer -> {
             try {
+                System.out.print("->"+peer.adress+":"+peer.port);
                 SocketChannel socket = SocketChannel.open(new InetSocketAddress(peer.adress, peer.port));
                 
-                connectServer(socket);
+                connectServer(socket, peer.port);
+
+                int remotePort = socket.socket().getPort();
+                SocketAddress remoteAdd = socket.getRemoteAddress();
+                
+                sendMessage(socket, "SERVERCONNECT "+port);
+                
+                if(socket.getRemoteAddress().equals(new InetSocketAddress("127.0.0.1", port))){
+                    System.out.print(" [\u001B[33mCURRENT\u001B[0m]\n");
+                    servers.remove(servers.get(servers.size()-1));
+                }else{
+                    System.out.print(" [\u001B[32mOK\u001B[0m]\n");
+                }
+                
+                
             } catch (IOException ex) {
-                System.out.println("Server "+peer.adress+" on "+peer.port+" is unreachable");
+                System.out.println(" [\u001B[31mUNREACHABLE\u001B[0m]\n");
             }
         });
+        
+        System.out.println("---------------------[END CONFIGURATION]---------------------");
     }
 
-    void connectServer(SocketChannel socket){
+    void connectServer(SocketChannel socket, int ogPort) {
         try {
             socket.configureBlocking(false);
-            sendMessage(socket, "SERVERCONNECT");
-            ChatServer cs = new ChatServer(socket);
-            if(socket.getLocalAddress() == socket.getRemoteAddress()) currentServer = cs;
-            servers.add(cs);
-            socket.register(selector, SelectionKey.OP_READ, cs.queue);
+            ChatServer cs = new ChatServer(socket, ogPort);
+            if (new InetSocketAddress("127.0.0.1", ogPort).equals(new InetSocketAddress("127.0.0.1", port))) {
+                currentServer = cs;
+            }
+            if(!servers.contains(cs)){
+                servers.add(cs);
+            }
+            
+            socket.register(selector, SelectionKey.OP_READ, cs);
         } catch (IOException ex) {
             Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
 
-    private void serverRead(SocketChannel server, ChatServer cs){
+    private void serverRead(SocketChannel server, ChatServer cs) {
         try {
             ByteBuffer buffer = ByteBuffer.allocate(256);
-            if(server.read(buffer)==-1){
+            if (server.read(buffer) == -1) {
                 cs.socket.close();
                 servers.remove(cs);
-                System.out.println("Server disconnected");
+                System.out.println("[\u001B[31mWARNING\u001B[0m] Server disconnected");
                 return;
             }
 
             String unconfirmedMessage = new String(buffer.array()).trim();
 
-            System.out.println("Message from "+cs.socket.getRemoteAddress()+" : "+unconfirmedMessage);
-
-            if(!unconfirmedMessage.equals("")){
+            System.out.println("[\u001B[43mSERVER\u001B[0m] Message from " + cs.socket.getRemoteAddress() + " : " + unconfirmedMessage);
+            
+            if (!unconfirmedMessage.equals("")) {
                 String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
-                //broadcastMessage();
-                setAllWrite(selector);
+
+                Pair<String, Map<InetSocketAddress, Integer>> pair = deserializeVector(message);
+                                
+                if (!isReady(pair.getValue())) {
+                    System.out.println("[\u001B[31mWARNING\u001B[0m] Vector unsync, message put on hold");
+                    waitList.add(new WaitingMessage(pair.getKey(), pair.getValue(), cs));
+                } else {
+                    cs.broadcast++;
+                    checkForWaitingMessage();
+                    String finalMessage = pair.getKey();
+                    broadcastMessageToClients(finalMessage);
+                    setAllWrite(selector);
+                }
             }
         } catch (IOException ex) {
             Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
@@ -285,15 +321,100 @@ public class ServerClavardDecentral implements ServerClavarde{
             Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
-    
-    void co_broadcast(String message, ChatClient cc){      
-        servers.forEach( server -> {
-            server.queue.add(message);
-        });
-        setAllWrite(selector);
-        servers.get(servers.indexOf(currentServer)).broadcast++;
+
+    String serializeVector(String message) {
+        String vector = "";
+
+        for (ChatServer server : servers) {
+            try {
+                vector += "§" + (InetSocketAddress) server.socket.getRemoteAddress() +"|"+server.ogPort+ "|" + server.broadcast;
+            } catch (IOException ex) {
+                Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        }
+
+        return message + vector;
+    }
+
+    Pair<String, Map<InetSocketAddress, Integer>> deserializeVector(String message) {
+        String[] split = message.split("§");
+
+        Map<InetSocketAddress, Integer> vector = new HashMap<>();
+
+        Pattern p = Pattern.compile("[0-9.]+", Pattern.MULTILINE);
+        for (int i = 1; i < split.length; i++) {
+            Matcher m = p.matcher(split[i]);
+
+            String[] matchh = new String[20];
+            for (int j = 0; m.find(); j++) {
+                matchh[j] = m.group();
+            }
+
+            vector.put(new InetSocketAddress(matchh[0], Integer.parseInt(matchh[2])), Integer.parseInt(matchh[3]));
+        }
         
+        System.out.println("[DESERIALIZE] Vector:"+vector+" Message:"+split[0]);
+        return new Pair<>(split[0], vector);
     }
     
+    boolean isReady(Map<InetSocketAddress, Integer> vector) {
+        System.out.print("[IS READY] ");
+        for (ChatServer server : servers) {
+            int serverVector = vector.get(new InetSocketAddress("127.0.0.1", server.ogPort));
+            int localVector = server.broadcast;
+
+            if(serverVector > localVector){
+                System.out.println("-> FALSE");
+                return false;
+            }
+        }
+        System.out.println("-> TRUE");
+        return true;
+    }
+
+    private void checkForWaitingMessage() {
+        System.out.println("[CHECK FOR WAITING MESSAGE]");
+        waitList.forEach( waitingMessage -> {
+            if(isReady(waitingMessage.vector)){
+                broadcastMessageToClients(waitingMessage.message);
+                waitingMessage.server.broadcast++;
+                waitList.remove(waitingMessage);
+                checkForWaitingMessage();
+            }
+        });
+    }
+      
+    void broadcastMessageToClients(String message) {
+        clients.forEach(client -> {
+            client.queue.add(message);
+        });
+    }
     
+    //CO_BROADCAST
+    void broadcastMessageToServers(String message) {
+        servers.forEach(server -> {
+            server.queue.add(serializeVector(message));
+        });
+        setAllWrite(selector);
+        currentServer.broadcast++;
+        checkForWaitingMessage();
+    }
+    
+    void setAllWrite(Selector selector) {
+        clients.forEach(client -> {
+            try {
+                client.socket.register(selector, SelectionKey.OP_WRITE, client);
+            } catch (ClosedChannelException ex) {
+                Logger.getLogger(ServerClavarde.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        });
+
+        servers.forEach(server -> {
+            try {
+                server.socket.register(selector, SelectionKey.OP_WRITE, server);
+            } catch (ClosedChannelException ex) {
+                Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
+            }
+        });
+    }
 }
