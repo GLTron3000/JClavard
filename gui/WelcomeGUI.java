@@ -69,7 +69,7 @@ public class WelcomeGUI extends Application {
         stage_client = clientGUI.stage;
         stage_server = serverGUI.stage;
         
-        primaryStage.setTitle("JClavardAMUsan ~~");
+        primaryStage.setTitle("JClavardAMU");
         primaryStage.setScene(scene_choice);
         primaryStage.show();
     }

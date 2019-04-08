@@ -13,6 +13,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
 import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.TimeUnit;
@@ -146,12 +147,18 @@ public class ServerClavardDecentral implements ServerClavarde {
             }
 
             String message = (String) queue.poll();
-            if(port == 12345) TimeUnit.SECONDS.sleep(0);
+            /*
+            * SIMULATEUR DE PANNE ALEATOIRE
+            try {
+                Random rand = new Random();
+                if(port == 12345) TimeUnit.SECONDS.sleep(rand.nextInt(15));
+            } catch (InterruptedException ex) {
+                Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
+            }*/
             ClavardAMUUtils.sendMessageClavardamu(client, message);
+            client.register(selector, SelectionKey.OP_WRITE, key.attachment());
         } catch (IOException e) {
             System.err.println("Communication error");
-        } catch (InterruptedException ex) {
-            Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
         }
     }
 
@@ -172,8 +179,7 @@ public class ServerClavardDecentral implements ServerClavarde {
                 chatClient.accept(pseudo);
 
                 clients.add(chatClient);
-                //broadcastMessageToClients(pseudo+" a rejoint la discussion");
-                //broadcastMessageToServers(pseudo+" a rejoint la discussion");
+                broadcastMessageToServers(pseudo+" a rejoint la discussion");
                 System.out.println("[\u001B[44mCLIENT\u001B[0m] accepted " + pseudo);
                 
             }
@@ -198,9 +204,8 @@ public class ServerClavardDecentral implements ServerClavarde {
             if (client.read(buffer) == -1) {
                 ChatClient cc = (ChatClient) key.attachment();
                 client.close();
-                //broadcastMessageToClients(cc.pseudo+" a quitter la discussion");
-                //broadcastMessageToServers(cc.pseudo+" a quitter la discussion");
                 clients.remove(cc);
+                broadcastMessageToServers(cc.pseudo+" a quitter la discussion");
                 System.out.println("[\u001B[33mWARNING\u001B[0m] Client "+cc.pseudo+" disconnected");
                 return;
             }
@@ -303,15 +308,18 @@ public class ServerClavardDecentral implements ServerClavarde {
                 String message = ClavardAMUUtils.checkMessageSyntaxe(unconfirmedMessage);
 
                 Pair<String, Map<InetSocketAddress, Integer>> pair = deserializeVector(message);
-                                
+                if (new InetSocketAddress("127.0.0.1", cs.ogPort).equals(new InetSocketAddress("127.0.0.1", port))) {
+                    System.out.println("CURRENT");
+                    cs = currentServer;
+                }   
                 if (!isReady(pair.getValue())) {
                     System.out.println("[\u001B[31mWARNING\u001B[0m] Vector unsync, message put on hold");
                     waitList.add(new WaitingMessage(pair.getKey(), pair.getValue(), cs));
                 } else {
-                    cs.broadcast++;
-                    checkForWaitingMessage();
+                    cs.broadcast++; 
                     String finalMessage = pair.getKey();
                     broadcastMessageToClients(finalMessage);
+                    checkForWaitingMessage();
                     setAllWrite(selector);
                 }
             }
@@ -353,17 +361,17 @@ public class ServerClavardDecentral implements ServerClavarde {
             vector.put(new InetSocketAddress(matchh[0], Integer.parseInt(matchh[2])), Integer.parseInt(matchh[3]));
         }
         
-        System.out.println("[DESERIALIZE] Vector:"+vector+" Message:"+split[0]);
+        //System.out.println("[DESERIALIZE] Vector:"+vector+" Message:"+split[0]);
         return new Pair<>(split[0], vector);
     }
     
     boolean isReady(Map<InetSocketAddress, Integer> vector) {
         System.out.print("[IS READY] ");
         for (ChatServer server : servers) {
-            int serverVector = vector.get(new InetSocketAddress("127.0.0.1", server.ogPort));
+            int messageVector = vector.get(new InetSocketAddress("127.0.0.1", server.ogPort));
             int localVector = server.broadcast;
 
-            if(serverVector > localVector){
+            if(localVector < messageVector){
                 System.out.println("-> FALSE");
                 return false;
             }
@@ -373,15 +381,18 @@ public class ServerClavardDecentral implements ServerClavarde {
     }
 
     private void checkForWaitingMessage() {
-        System.out.println("[CHECK FOR WAITING MESSAGE]");
-        waitList.forEach( waitingMessage -> {
-            if(isReady(waitingMessage.vector)){
-                broadcastMessageToClients(waitingMessage.message);
-                waitingMessage.server.broadcast++;
-                waitList.remove(waitingMessage);
-                checkForWaitingMessage();
+        System.out.println("[CHECK FOR WAITING MESSAGE] "+waitList.size());
+        ArrayList<WaitingMessage> toRemove = new ArrayList();
+        for(WaitingMessage message : waitList){
+            if(isReady(message.vector)){
+                broadcastMessageToClients(message.message);
+                message.server.broadcast++;
+                //waitList.remove(message);
+                toRemove.add(message);
             }
-        });
+        }
+        
+        waitList.removeAll(toRemove);
     }
       
     void broadcastMessageToClients(String message) {
@@ -393,11 +404,13 @@ public class ServerClavardDecentral implements ServerClavarde {
     //CO_BROADCAST
     void broadcastMessageToServers(String message) {
         servers.forEach(server -> {
-            server.queue.add(serializeVector(message));
+            if(!new InetSocketAddress("127.0.0.1", server.ogPort).equals(new InetSocketAddress("127.0.0.1", port))) server.queue.add(serializeVector(message));
         });
         setAllWrite(selector);
         currentServer.broadcast++;
         checkForWaitingMessage();
+        setAllWrite(selector);
+        broadcastMessageToClients(message);
     }
     
     void setAllWrite(Selector selector) {
@@ -416,5 +429,11 @@ public class ServerClavardDecentral implements ServerClavarde {
                 Logger.getLogger(ServerClavardDecentral.class.getName()).log(Level.SEVERE, null, ex);
             }
         });
+    }
+    
+    void printLocalVector(){
+        for(ChatServer server : servers){
+            System.out.println(server.ogPort+" -> "+server.broadcast);
+        }
     }
 }

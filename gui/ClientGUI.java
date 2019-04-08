@@ -191,8 +191,8 @@ public class ClientGUI {
         initPseudo();
         initError();
         
-        scene_pseudo = new Scene(borderPPseudo, 500, 500);
-        scene_chat = new Scene(borderPChat, 500, 500);    
+        scene_pseudo = new Scene(borderPPseudo, 500, 300);
+        scene_chat = new Scene(borderPChat, 500, 300);    
         scene_error = new Scene(vBoxError, 300, 200);
         
         stage = new Stage();
